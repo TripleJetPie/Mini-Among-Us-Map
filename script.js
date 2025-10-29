@@ -58,6 +58,18 @@ class AmongUsMap {
         this.meetingCooldown = 0;
         this.meetingCooldownTime = 15000; // 15 seconds
         
+        // Mobile detection and touch controls
+        this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                        (window.innerWidth <= 768 && 'ontouchstart' in window);
+        this.touchControls = {
+            active: false,
+            startX: 0,
+            startY: 0,
+            currentX: 0,
+            currentY: 0
+        };
+        this.movementKeys = {};
+        
         // AI Impostor system (when player is crewmate)
         this.aiImpostorBot = null; // Which bot is the AI impostor
         this.aiImpostorKills = 0; // Track AI impostor kills
@@ -83,13 +95,27 @@ class AmongUsMap {
         this.showRoleAssignment();
         this.setupEmergencyButton();
         this.designateAIImpostor();
+        this.updateControlInstructions();
+    }
+    
+    updateControlInstructions() {
+        const controlInstructions = document.getElementById('control-instructions');
+        if (controlInstructions) {
+            if (this.isMobile) {
+                controlInstructions.textContent = 'Use on-screen joystick and buttons to play';
+            } else {
+                controlInstructions.textContent = 'Use WASD or Arrow Keys to move';
+            }
+        }
     }
     
     setupPlayerControls() {
         const keys = {};
         
+        // Keyboard controls (for desktop)
         document.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
+            this.movementKeys[e.key.toLowerCase()] = true;
             this.handlePlayerMovement(keys);
             
             // Handle kill action (only for impostor)
@@ -111,7 +137,209 @@ class AmongUsMap {
         
         document.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
+            this.movementKeys[e.key.toLowerCase()] = false;
         });
+        
+        // Mobile touch controls
+        if (this.isMobile) {
+            this.setupMobileControls();
+        }
+    }
+    
+    setupMobileControls() {
+        // Create mobile control UI
+        const mobileControls = document.createElement('div');
+        mobileControls.id = 'mobile-controls';
+        mobileControls.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            z-index: 100;
+            pointer-events: none;
+        `;
+        
+        // Joystick area (left side)
+        const joystickArea = document.createElement('div');
+        joystickArea.id = 'joystick-area';
+        joystickArea.style.cssText = `
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: 3px solid rgba(255, 255, 255, 0.5);
+            position: relative;
+            pointer-events: all;
+            touch-action: none;
+        `;
+        
+        const joystickKnob = document.createElement('div');
+        joystickKnob.id = 'joystick-knob';
+        joystickKnob.style.cssText = `
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.8);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        `;
+        
+        joystickArea.appendChild(joystickKnob);
+        mobileControls.appendChild(joystickArea);
+        
+        // Action buttons (right side)
+        const actionButtons = document.createElement('div');
+        actionButtons.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: all;
+        `;
+        
+        // Kill/Report button
+        const actionBtn = document.createElement('button');
+        actionBtn.id = 'mobile-action-btn';
+        actionBtn.style.cssText = `
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: ${this.playerRole === 'impostor' ? 'rgba(231, 76, 60, 0.8)' : 'rgba(52, 152, 219, 0.8)'};
+            border: 3px solid rgba(255, 255, 255, 0.9);
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            touch-action: manipulation;
+        `;
+        actionBtn.textContent = this.playerRole === 'impostor' ? '🔪' : '📢';
+        actionButtons.appendChild(actionBtn);
+        
+        // Vent button (only for impostor)
+        if (this.playerRole === 'impostor') {
+            const ventBtn = document.createElement('button');
+            ventBtn.id = 'mobile-vent-btn';
+            ventBtn.style.cssText = `
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: rgba(155, 89, 182, 0.8);
+                border: 3px solid rgba(255, 255, 255, 0.9);
+                color: white;
+                font-size: 24px;
+                font-weight: bold;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                touch-action: manipulation;
+            `;
+            ventBtn.textContent = '🚪';
+            actionButtons.appendChild(ventBtn);
+        }
+        
+        mobileControls.appendChild(actionButtons);
+        document.body.appendChild(mobileControls);
+        
+        // Joystick touch handling
+        let joystickRect = joystickArea.getBoundingClientRect();
+        let joystickCenter = {
+            x: joystickRect.left + joystickRect.width / 2,
+            y: joystickRect.top + joystickRect.height / 2
+        };
+        const joystickRadius = joystickRect.width / 2 - 30;
+        
+        const updateJoystickCenter = () => {
+            joystickRect = joystickArea.getBoundingClientRect();
+            joystickCenter = {
+                x: joystickRect.left + joystickRect.width / 2,
+                y: joystickRect.top + joystickRect.height / 2
+            };
+        };
+        
+        const handleTouchStart = (e) => {
+            e.preventDefault();
+            updateJoystickCenter();
+            this.touchControls.active = true;
+            const touch = e.touches[0] || e.changedTouches[0];
+            this.touchControls.startX = touch.clientX;
+            this.touchControls.startY = touch.clientY;
+        };
+        
+        const handleTouchMove = (e) => {
+            if (!this.touchControls.active) return;
+            e.preventDefault();
+            const touch = e.touches[0] || e.changedTouches[0];
+            const deltaX = touch.clientX - joystickCenter.x;
+            const deltaY = touch.clientY - joystickCenter.y;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            if (distance <= joystickRadius) {
+                this.touchControls.currentX = deltaX;
+                this.touchControls.currentY = deltaY;
+            } else {
+                const angle = Math.atan2(deltaY, deltaX);
+                this.touchControls.currentX = Math.cos(angle) * joystickRadius;
+                this.touchControls.currentY = Math.sin(angle) * joystickRadius;
+            }
+            
+            // Update joystick knob position
+            joystickKnob.style.transform = `translate(calc(-50% + ${this.touchControls.currentX}px), calc(-50% + ${this.touchControls.currentY}px))`;
+            
+            // Convert joystick movement to movement keys
+            const threshold = 10;
+            this.movementKeys = {};
+            if (Math.abs(this.touchControls.currentX) > threshold) {
+                this.movementKeys[this.touchControls.currentX > 0 ? 'd' : 'a'] = true;
+            }
+            if (Math.abs(this.touchControls.currentY) > threshold) {
+                this.movementKeys[this.touchControls.currentY > 0 ? 's' : 'w'] = true;
+            }
+        };
+        
+        const handleTouchEnd = (e) => {
+            e.preventDefault();
+            this.touchControls.active = false;
+            this.touchControls.currentX = 0;
+            this.touchControls.currentY = 0;
+            this.movementKeys = {};
+            joystickKnob.style.transform = 'translate(-50%, -50%)';
+        };
+        
+        joystickArea.addEventListener('touchstart', handleTouchStart, { passive: false });
+        joystickArea.addEventListener('touchmove', handleTouchMove, { passive: false });
+        joystickArea.addEventListener('touchend', handleTouchEnd, { passive: false });
+        joystickArea.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        
+        // Action button handlers
+        actionBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (this.playerRole === 'impostor') {
+                this.attemptKill();
+            } else {
+                this.attemptEmergencyMeeting();
+            }
+        }, { passive: false });
+        
+        if (this.playerRole === 'impostor') {
+            const ventBtn = document.getElementById('mobile-vent-btn');
+            ventBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                this.attemptVent();
+            }, { passive: false });
+        }
+        
+        // Update movement handler to use touch controls
+        setInterval(() => {
+            if (this.isMobile && Object.keys(this.movementKeys).length > 0) {
+                this.handlePlayerMovement(this.movementKeys);
+            }
+        }, 16); // ~60fps
     }
     
     handlePlayerMovement(keys) {
@@ -719,20 +947,45 @@ class AmongUsMap {
         // Check if player is near any dead body
         this.deadBodies.forEach((body, index) => {
             if (!this.reportedBodies.includes(index)) {
-                const distance = Math.sqrt(
+                // Check player
+                const playerDistance = Math.sqrt(
                     Math.pow(this.playerX - body.x, 2) + 
                     Math.pow(this.playerY - body.y, 2)
                 );
                 
-                if (distance < 5) { // 4-5 pixels as requested
+                if (playerDistance < 5) { // 4-5 pixels as requested
                     if (this.playerRole === 'crewmate') {
                         // Body reported - impostor loses
                         this.showVictoryMessage('Crewmates Win!', 'Dead body was reported!');
+                        this.reportedBodies.push(index);
+                        return;
                     } else if (this.playerRole === 'impostor') {
                         // Player impostor loses if crewmate reports body
                         this.showVictoryMessage('Crewmates Win!', 'Your victim was found!');
+                        this.reportedBodies.push(index);
+                        return;
                     }
                 }
+                
+                // Check if any alive crewmate bot touches the dead body
+                const roomNames = ['cafeteria', 'medbay', 'security', 'electrical', 'storage', 'admin', 'weapons', 'navigation'];
+                roomNames.forEach(roomName => {
+                    // Only check alive bots (not the impostor bot)
+                    if (this.botStates[roomName] === 'alive' && roomName !== this.aiImpostorBot) {
+                        const botPos = this.botPositions[roomName];
+                        const botDistance = Math.sqrt(
+                            Math.pow(botPos.x - body.x, 2) + 
+                            Math.pow(botPos.y - body.y, 2)
+                        );
+                        
+                        // Bot touches body (within 10 pixels - considering bot size)
+                        if (botDistance < 10) {
+                            // AI crewmate reports body - impostor loses
+                            this.showVictoryMessage('Crewmates Win!', 'AI crewmate reported a dead body!');
+                            this.reportedBodies.push(index);
+                        }
+                    }
+                });
             }
         });
     }
